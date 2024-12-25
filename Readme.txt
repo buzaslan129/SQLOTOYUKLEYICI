@@ -3,7 +3,7 @@ Ek hata olursa log file bana yollayın. "bilgiguvenlik@bilnex.com.tr"
 Testte sıfırdan veya demo kurulumlarda çalıştıralım.
 Paylaşım ayarlarının hepsini açıyor ancak parola korumalı tikini sizin kaldırmanız lazım Windows izin vermiyor.(güncellenecek)
 Şu anlık 2022full/2019 express versiyonu yüklemektedir. 
-SSMS KURULMUYOR kendiniz yüklemeniz lazım.(sql üzerinde ayar yapılmayacaksa indirmenize gerek yoktur)
+SSMS KURULMUYOR Bilnex kurulmuyor. Şu anlık. kendiniz yüklemeniz lazım.(sql üzerinde ayar yapılmayacaksa indirmenize gerek yoktur)
 Kodun amacı sistemi otomaktikleştirmek ve güvenlik olaylarını standart haline getirmek.
 Şifre c:/bilnexşifre diye yazdırılıyor portlar otomatik açılıyor paylaşıma açılıyor.
 Oto kurulum özellikleri 
