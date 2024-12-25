@@ -30,7 +30,7 @@ param(
 
     # Service name. Mandatory, by default MSSQLSERVER İstenene göre değiştirilebilir.
     [ValidateNotNullOrEmpty()]
-    [string] $InstanceNam = 'MSSQLBILNEP',
+    [string] $InstanceNam = 'MSSQLBILNEXYAA',
 
     # sa user password. If empty, SQL security mode (mixed mode) is disabled
     [string] $SaPassword ='$SIFRE',
@@ -89,7 +89,7 @@ function Scramble-String([string]$inputString){
 $SIFRE = Get-RandomCharacters -length 11 -characters 'abcdefghiklmnoprstuvwxyz'
 $SIFRE += Get-RandomCharacters -length 7 -characters 'ABCDEFGHKLMNOPRSTUVWXYZ'
 $SIFRE += Get-RandomCharacters -length 6 -characters '1234567890'
-$SIFRE += Get-RandomCharacters -length 6 -characters '!"§$%/()=?}][{@#*+'
+$SIFRE += Get-RandomCharacters -length 6 -characters '!§$%/()=?}][{@#*+'
 
 # Şifreyi karıştırıyoruz
 $SIFRE = Scramble-String $SIFRE
@@ -317,74 +317,66 @@ try {
     Write-Error "Bir hata oluştu: $_"
     exit 1
 }
-##################################################### 1. KISIM SONU İLK KISIM STATİK İP AYARLAMASINI YAPIYOR #####################################################
-# SQL Server instance'larını tespit etme
-Write-Host "Bilgisayardaki SQL Server instance'ları tespit ediliyor..."
-$sqlInstances = @()
+##################################################### İNSTANCE BÖLÜMÜ #####################################################
+# Kullanıcıdan alınan SQL Server instance adı
+$instanceName = $InstanceNam  # Örnek: 'MSSQLSERVER' veya 'MSSQLBILNEP'
 
-# 64-bit ve 32-bit Registry yollarını tarama
-$registryPaths = @(
-    "HKLM:\SOFTWARE\Microsoft\Microsoft SQL Server\Instance Names\SQL",          # 64-bit
-    "HKLM:\SOFTWARE\WOW6432Node\Microsoft\Microsoft SQL Server\Instance Names\SQL"  # 32-bit
-)
+# MSSQL versiyonlarını dinamik olarak kontrol etme
+function Find-SqlServerInstance {
+    param (
+        [string] $InstanceName
+    )
+    $found = $false
+    $registryPath = ""
 
-# Her iki registry yolunu tarıyoruz
-foreach ($rootPath in $registryPaths) {
-    Write-Host "Kontrol edilen registry yolu: $rootPath"
-    
-    if (Test-Path $rootPath) {
-        Write-Host "Registry yolu bulundu: $rootPath"
-        
-        # SQL Server instance isimlerini alalım
-        $instanceNames = Get-ItemProperty -Path $rootPath
-        foreach ($instanceName in $instanceNames.PSObject.Properties) {
-            # Sadece geçerli instance'ları ekle
-            if ($instanceName.Name -notmatch "PS*") {
-                Write-Host "Bulunan SQL Server instance'ı: $($instanceName.Name)"
-                $sqlInstances += $instanceName.Name
+    # MSSQL5'ten MSSQL20'ye kadar versiyonları kontrol et
+    for ($version = 5; $version -le 20; $version++) {
+        $instanceVersion = "MSSQL$version"
+        $testPath = "HKLM:\SOFTWARE\Microsoft\Microsoft SQL Server\$instanceVersion.$InstanceName"
+
+        # Registry yolunu kontrol et
+        if (Test-Path $testPath) {
+            Write-Host "SQL Server instance bulundu: $testPath"
+            $found = $true
+            $registryPath = $testPath
+            break
+        }
+    }
+
+    if (-not $found) {
+        Write-Warning "Hiçbir SQL Server instance bulunamadı."
+    }
+    return $registryPath
+}
+
+# Ana döngü: Instance bulunana kadar devam et
+do {
+    $registryPath = Find-SqlServerInstance -InstanceName $instanceName
+
+    if (-not $registryPath) {
+        Write-Host "SQL Server instance bulunamadı. Lütfen bir yol belirtin veya işlemi tekrar deneyin."
+        Write-Host "Registry yolu önerisi: 'HKLM:\SOFTWARE\Microsoft\Microsoft SQL Server\...'"
+
+        # Kullanıcıdan özel bir registry yolu alma
+        $customPath = Read-Host "Registry yolunu manuel olarak girin veya Enter tuşuna basarak yeniden tarayın"
+
+        if ($customPath -ne "") {
+            if (Test-Path $customPath) {
+                Write-Host "Kullanıcı tarafından sağlanan registry yolu bulundu: $customPath"
+                $registryPath = $customPath
+            } else {
+                Write-Host "Girilen registry yolu bulunamadı. Tekrar deneyin."
             }
         }
-    } else {
-        Write-Host "Registry yolu bulunamadı: $rootPath"
     }
-}
 
-# Sonuçları kontrol etme
-if ($sqlInstances.Count -eq 0) {
-    Write-Error "SQL Server instance'ı bulunamadı. Lütfen registry yollarını kontrol edin ve scripti tekrar çalıştırın."
-    exit 1
-}
+    # Eğer hala bulunamadıysa tekrar döngüye girer
+} while (-not $registryPath)
 
-# Instance seçme menüsü
-Write-Host "Lütfen bir SQL Server instance'ı seçin:"
-
-# Listeleme
-$i = 1
-foreach ($instance in $sqlInstances) {
-    Write-Host "$i. $instance"
-    $i++
-}
-
-# Seçim: Kullanıcı geçerli bir seçim yapana kadar tekrar sorulacak
-$selectedIndex = 0
-do {
-    $selectedIndex = Read-Host "Seçiminizi yapın (1-$($sqlInstances.Count))"
-    
-    # Seçimin geçerli olup olmadığını kontrol etme
-    if (-not ($selectedIndex -as [int])) {
-        Write-Host "Geçersiz seçim. Lütfen bir sayı girin."
-    } elseif ($selectedIndex -lt 1 -or $selectedIndex -gt $sqlInstances.Count) {
-        Write-Host "Geçersiz seçim. Lütfen geçerli bir seçim yapın."
-    }
-} while (-not ($selectedIndex -as [int]) -or $selectedIndex -lt 1 -or $selectedIndex -gt $sqlInstances.Count)
-
-$selectedIndex = [int]$selectedIndex
-$selectedInstance = $sqlInstances[$selectedIndex - 1]
-Write-Host "Seçilen SQL Server instance'ı: $selectedInstance"
-
-# SQL Server'ın registry yolu
-$instanceVersion = "MSSQL15"  # Örnek olarak MSSQL15, versiyonunuzu değiştirebilirsiniz.2017 VE ÖNCESİ 2019=15 2017=14 2016=12-10 Diye gidiyor.
-$registryPath = "HKLM:\SOFTWARE\Microsoft\Microsoft SQL Server\$instanceVersion.$selectedInstance\MSSQLServer\SuperSocketNetLib\Tcp"
+# Bulunan registry yoluna göre işlemlere devam et
+Write-Host "Kullanılacak registry yolu: $registryPath"
+# Gerekli işlemler burada devam eder...
+##################################################### RANDOM PORT#####################################################
 
 # SQL Server Configuration Manager'da TCP/IP Ayarlarını Yapılandırma
 try {
