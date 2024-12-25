@@ -1,4 +1,4 @@
-Öncelikle rar klasörü C:/ içerisine ayıklayın ve çalıştırı yönetici olarak başlatın.
+Öncelikle rar veya klasörü C:/ içerisine ayıklayın ve çalıştırı yönetici olarak başlatın.
 Ek hata olursa log file bana yollayın. "bilgiguvenlik@bilnex.com.tr"
 Testte sıfırdan veya demo kurulumlarda çalıştıralım.
 Paylaşım ayarlarının hepsini açıyor ancak parola korumalı tikini sizin kaldırmanız lazım Windows izin vermiyor.(güncellenecek)
