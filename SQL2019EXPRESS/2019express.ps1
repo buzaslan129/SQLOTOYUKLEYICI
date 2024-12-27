@@ -15,45 +15,18 @@
 #>
 
 param(
-    # Path to ISO file, if empty and current directory contains single ISO file, it will be used.
     [string] $IsoPath = $ENV:SQLSERVER_ISOPATH,
-
-     # Sql Server features, see https://docs.microsoft.com/en-us/sql/database-engine/install-windows/install-sql-server-2016-from-the-command-prompt#Feature
     [ValidateSet('SQL', 'SQLEngine', 'Replication', 'FullText', 'DQ', 'PolyBase', 'AdvancedAnalytics', 'AS', 'RS', 'DQC', 'IS', 'MDS', 'SQL_SHARED_MR', 'Tools', 'BC', 'BOL', 'Conn', 'DREPLAY_CLT', 'SNAC_SDK', 'SDK', 'LocalDB')]
     [string[]] $Features = @('SQL', 'SQLEngine', 'FullText','Tools','BC','Conn','LocalDB','SDK','SNAC_SDK'),
-
-    # Specifies a nondefault installation directory
     [string] $InstallDir,
-
-    # Data directory, by default "$Env:ProgramFiles\Microsoft SQL Server"
     [string] $DataDir,
-
-    # Service name. Mandatory, by default MSSQLSERVER İstenene göre değiştirilebilir.
-    [ValidateNotNullOrEmpty()]
-    [string] $InstanceNam = 'MSSQLBILNEXYAA',
-
-    # sa user password. If empty, SQL security mode (mixed mode) is disabled
+    [ValidateNotNullOrEmpty()] [string] $InstanceName = 'MSSQLBILNEE',
     [string] $SaPassword ='$SIFRE',
-
-    # Username for the service account, see https://docs.microsoft.com/en-us/sql/database-engine/install-windows/install-sql-server-2016-from-the-command-prompt#Accounts
-    # Optional, by default 'NT Service\MSSQLSERVER'
-    [string] $ServiceAccountName, # = "$Env:USERDOMAIN\$Env:USERNAME"
-
-    # Password for the service account, should be used for domain accounts only
-    # Mandatory with ServiceAccountName
+    [string] $ServiceAccountName,
     [string] $ServiceAccountPassword,
-
-    # List of system administrative accounts in the form <domain>\<user>
-    # Mandatory, by default current user will be added as system administrator
     [string[]] $SystemAdminAccounts = @("$Env:USERDOMAIN\$Env:USERNAME"),
-
-    # Product key, if omitted, evaluation is used unless VL edition which is already activated
     [string] $ProductKey,
-
-    # Use bits transfer to get files from the Internet
     [switch] $UseBitsTransfer,
-
-    # Enable SQL Server protocols: TCP/IP, Named Pipes
     [switch] $EnableProtocols
 )
 
@@ -62,27 +35,19 @@ if (-not ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdent
     Start-Process -FilePath "powershell.exe" -ArgumentList "-NoProfile -ExecutionPolicy Bypass -File `"$($MyInvocation.MyCommand.Path)`"" -Verb RunAs
     exit
 }
-##################################################### Rastgele Şifre Aşaması Uzunluk "length" kısmından arttırılabilir.  #####################################################
+
 function Get-RandomCharacters($length, $characters) {
-    # Rastgele karakterler seçmek için rastgele indeksler oluşturuyoruz
     $random = 1..$length | ForEach-Object { 
-        # $characters dizisinin uzunluğu kadar rastgele bir sayı seçiyoruz
         Get-Random -Maximum $characters.Length
     }
-    
-    # Rastgele seçilen indekslere göre karakterleri alıyoruz ve bunları birleştiriyoruz
     $result = $random | ForEach-Object { $characters[$_] }
     return -join $result
 }
 
 function Scramble-String([string]$inputString){
-    # Girdi string'ini bir karakter dizisine dönüştürüyoruz
     $characterArray = $inputString.ToCharArray()
-    # Karakter dizisini karıştırıyoruz
     $scrambledStringArray = $characterArray | Get-Random -Count $characterArray.Length
-    # Karıştırılmış karakterleri birleştirip döndürüyoruz
-    $outputString = -join $scrambledStringArray
-    return $outputString
+    return -join $scrambledStringArray
 }
 
 # Şifreyi rastgele oluşturuyoruz
@@ -94,20 +59,14 @@ $SIFRE += Get-RandomCharacters -length 6 -characters '!§$%/()=?}][{@#*+'
 # Şifreyi karıştırıyoruz
 $SIFRE = Scramble-String $SIFRE
 
-# Sonuç şifresini bir dosyaya kaydediyoruz
-"SqlID=SA SqlSifre=$SIFRE BağlantıID=$SystemAdminAccounts/$InstanceNam" | Out-File -FilePath "C:\SQLBILNEXIDSIFRE.txt" -Encoding UTF8
-
-$ErrorActionPreference = 'Continue'
+$ErrorActionPreference = 'Stop'  # Hataları yönetirken tüm hataları yakalamak için 'Stop' kullanıldı.
 $scriptName = (Split-Path -Leaf $PSCommandPath).Replace('.ps1', '')
 
 $start = Get-Date
 Start-Transcript "$PSScriptRoot\$scriptName-$($start.ToString('s').Replace(':','-')).log"
 
-##################################################### ISO INDIRME ATAMASI #####################################################
-# Google Drive dosya kimliği
-$FileId = "1ez0vA65Nfj5O-Ri_82wE83hwpXcqzeN5"  # Google Drive dosya kimliği 2019 express
-
-# İndirme URL'si ve dosya kaydetme yolu
+# ISO INDIRME ATAMASI
+$FileId = "1ez0vA65Nfj5O-Ri_82wE83hwpXcqzeN5"
 $downloadUrl = "https://drive.usercontent.google.com/download?id=$FileId&export=download&authuser=0&confirm=t&uuid=$([guid]::NewGuid())"
 $saveDir = Join-Path $Env:TEMP "DownloadedFiles"
 New-Item $saveDir -ItemType Directory -ErrorAction SilentlyContinue | Out-Null
@@ -121,26 +80,23 @@ if (Test-Path $savePath) {
     # TLS v1.2 protokolünü kullanmak için
     [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 
-    # HttpWebRequest kullanarak indirme işlemi
     Write-Host "Downloading ISO file from Google Drive..."
-    $request = [System.Net.HttpWebRequest]::Create($downloadUrl)
-    $response = $request.GetResponse()
-    $contentLength = $response.ContentLength
-
-    $stream = $response.GetResponseStream()
-    $fileStream = [System.IO.File]::Create($savePath)
-    $buffer = New-Object byte[] 8192
-    $totalBytesRead = 0
-    $lastReportedProgress = 0
-    $lastUpdateTime = Get-Date
-
     try {
+        $request = [System.Net.HttpWebRequest]::Create($downloadUrl)
+        $response = $request.GetResponse()
+        $contentLength = $response.ContentLength
+
+        $stream = $response.GetResponseStream()
+        $fileStream = [System.IO.File]::Create($savePath)
+        $buffer = New-Object byte[] 8192
+        $totalBytesRead = 0
+        $lastReportedProgress = 0
+        $lastUpdateTime = Get-Date
+
         while (($bytesRead = $stream.Read($buffer, 0, $buffer.Length)) -gt 0) {
             $fileStream.Write($buffer, 0, $bytesRead)
             $totalBytesRead += $bytesRead
             $progress = [math]::Round(($totalBytesRead / $contentLength) * 100, 2)
-
-            # İlerlemeyi yalnızca belirli koşullarda yazdır
             $currentTime = Get-Date
             if (($progress -ge $lastReportedProgress + 1) -or (($currentTime - $lastUpdateTime).TotalSeconds -ge 10)) {
                 Write-Progress -Activity "Downloading ISO file" -Status "$progress% completed" -PercentComplete $progress
@@ -148,21 +104,15 @@ if (Test-Path $savePath) {
                 $lastUpdateTime = $currentTime
             }
         }
-    } finally {
+
         $fileStream.Close()
         $stream.Close()
         $response.Close()
+        Write-Host "`nISO file downloaded to: $savePath"
     }
-
-    Write-Host "`nISO file downloaded to: $savePath"
-
-    # Dosyanın hash kontrolünü yap
-    $hash = Get-FileHash -Algorithm MD5 $savePath | % Hash
-    $hashFilePath = "$savePath.md5"
-
-    # Hash değerini dosyaya yaz
-    $hash | Out-File $hashFilePath
-    Write-Host "MD5 hash written to: $hashFilePath"
+    catch {
+        Write-Warning "ISO download failed: $_"
+    }
 }
 
 # ISO dosyasını bağla
@@ -170,53 +120,48 @@ $IsoPath = $savePath  # ISO dosyasının yolu
 Write-Host "Attempting to mount ISO from: $IsoPath"
 
 try {
-    # ISO'yu bağla ve sürücüyü al
     $volume = Mount-DiskImage -ImagePath $IsoPath -StorageType ISO -PassThru | Get-Volume
     if ($volume) {
         Write-Host "ISO mounted successfully. Volume details: $($volume.DriveLetter):"
         $iso_drive = $volume.DriveLetter + ':'
     } else {
-        Write-Host "Failed to get volume after mounting ISO."
+        Write-Warning "Failed to get volume after mounting ISO."
         throw "Unable to mount the ISO file correctly."
     }
 } catch {
-    Write-Host "Error mounting ISO: $_"
-    throw "Unable to mount the ISO file."
+    Write-Warning "Error mounting ISO: $_"
 }
 
 Write-Host "`nISO drive: $iso_drive"
 
 # ISO dosyasındaki dosyaları listele
 Write-Host "Listing files in the ISO:"
-Get-ChildItem $iso_drive | Format-Table -AutoSize | Out-String
+try {
+    Get-ChildItem $iso_drive | Format-Table -AutoSize | Out-String
+} catch {
+    Write-Warning "Error listing files in ISO: $_"
+}
 
 # Yükleme işlemi için çalışan SQL Server kurulumunu sonlandırma
 Get-CimInstance win32_process | Where-Object { $_.CommandLine -like '*setup.exe*/ACTION=install*' } | ForEach-Object {
     Write-Host "Sql Server installer is already running, killing it:" $_.Path "pid: " $_.ProcessId
     Stop-Process $_.ProcessId -Force
 }
-##################################################### Setup Kurulum Aşaması  #####################################################Sonrasında bilnexe entegre edilecek#######################
 
-$cmd =@(
+$cmd = @(
     "${iso_drive}setup.exe"
     '/Q'                                # Silent install
     '/INDICATEPROGRESS'                 # Specifies that the verbose Setup log file is piped to the console
     '/IACCEPTSQLSERVERLICENSETERMS'     # Must be included in unattended installations
     '/ACTION=install'                   # Required to indicate the installation workflow
     '/UPDATEENABLED=True'              # Should it discover and include product updates.
-
     "/INSTANCEDIR=""$InstallDir"""
     "/INSTALLSQLDATADIR=""$DataDir"""
-
     "/FEATURES=" + ($Features -join ',')
-
-    #Security
     "/SQLSYSADMINACCOUNTS=""$SystemAdminAccounts"""
     '/SECURITYMODE=SQL'                 # Silinirse windows auth ile giriş yapılabilir. Bu şekilde ise sa ve diğer authlar çalışır.
     "/SAPWD=""$SIFRE"""            # Sa user password
-
-    "/INSTANCENAME=$InstanceNam"       # Server ismi
-
+    "/INSTANCENAME=$InstanceName"       # Server ismi
     "/SQLSVCACCOUNT=""$ServiceAccountName"""
     "/SQLSVCPASSWORD=""$ServiceAccountPassword"""
     "/PID=$ProductKey"
@@ -231,18 +176,30 @@ Write-Host "Install parameters:`n"
 $cmd_out[1..100] | % { $a = $_ -split '='; Write-Host '   ' $a[0].PadRight(40).Substring(1), $a[1] }
 Write-Host
 
+# Command to execute
 "$cmd_out"
-Invoke-Expression "$cmd"
-if ($LastExitCode) {
-    if ($LastExitCode -ne 3010) { throw "SqlServer installation failed, exit code: $LastExitCode" }
-    Write-Warning "SYSTEM REBOOT IS REQUIRED"
+try {
+    Invoke-Expression "$cmd"
+    if ($LastExitCode) {
+        if ($LastExitCode -ne 3010) {
+            throw "SQL Server installation failed, exit code: $LastExitCode"
+        }
+        Write-Warning "SYSTEM REBOOT IS REQUIRED"
+    }
+} catch {
+    Write-Error "An error occurred while running the SQL Server setup: $_"
 }
 
 "`nInstallation length: {0:f1} minutes" -f ((Get-Date) - $start).TotalMinutes
 
 # Dismount ISO only if $IsoPath is valid
 if ($IsoPath) {
-    Dismount-DiskImage $IsoPath
+    try {
+        Dismount-DiskImage $IsoPath
+        Write-Host "ISO file dismounted successfully."
+    } catch {
+        Write-Warning "Error dismounting ISO: $_"
+    }
 } else {
     Write-Host "No ISO path found, skipping dismount."
 }
@@ -267,8 +224,7 @@ try {
         $currentGatewayConfig = Get-NetIPConfiguration -InterfaceAlias $interfaceAlias -ErrorAction SilentlyContinue
 
         if (-not $currentIPConfig) {
-            Write-Host "Bu bağdaştırıcıda mevcut bir IP yapılandırması yok. Atlanıyor..."
-            continue
+            Write-Host "Bu bağdaştırıcıda mevcut bir IP yapılandırması yok. Atlanıyor..." -ErrorAction SilentlyContinue
         }
 
         # Mevcut yapılandırmayı oku
@@ -291,48 +247,49 @@ try {
             Remove-NetRoute -InterfaceAlias $interfaceAlias -Confirm:$false -ErrorAction SilentlyContinue
 
             # Yeni IP adresi
-            New-NetIPAddress -InterfaceAlias $interfaceAlias -IPAddress $currentIP -PrefixLength $subnetMask -ErrorAction Continue
+            New-NetIPAddress -InterfaceAlias $interfaceAlias -IPAddress $currentIP -PrefixLength $subnetMask -ErrorAction SilentlyContinue
             Write-Host "Statik IP başarıyla ayarlandı: $currentIP"
 
             # Ağ geçidini ekle
-            New-NetRoute -InterfaceAlias $interfaceAlias -DestinationPrefix "0.0.0.0/0" -NextHop $gateway -ErrorAction Continue
+            New-NetRoute -InterfaceAlias $interfaceAlias -DestinationPrefix "0.0.0.0/0" -NextHop $gateway -ErrorAction SilentlyContinue
             Write-Host "Ağ geçidi başarıyla yapılandırıldı: $gateway"
         } catch {
-            Write-Error "Statik IP ayarlanırken bir hata oluştu: $_"
-            exit 1
+            Write-Error "Statik IP ayarlanırken bir hata oluştu: $_" -ErrorAction SilentlyContinue
         }
 
         # DNS Ayarlarını Yapılandır
         Write-Host "DNS ayarları yapılandırılıyor..."
         try {
-            Set-DnsClientServerAddress -InterfaceAlias $interfaceAlias -ServerAddresses $dns1, $dns2 -ErrorAction Continue
+            Set-DnsClientServerAddress -InterfaceAlias $interfaceAlias -ServerAddresses $dns1, $dns2 -ErrorAction SilentlyContinue
             Write-Host "DNS ayarları başarıyla yapılandırıldı: $dns1, $dns2"
         } catch {
-            Write-Error "DNS ayarları yapılandırılırken bir hata oluştu: $_"
-            exit 1
+            Write-Error "DNS ayarları yapılandırılırken bir hata oluştu: $_" -ErrorAction SilentlyContinue
         }
     }
     Write-Host "Tüm ayarlar başarıyla tamamlandı."
 } catch {
-    Write-Error "Bir hata oluştu: $_"
-    exit 1
+    Write-Error "Bir hata oluştu: $_" -ErrorAction SilentlyContinue
 }
+
 ##################################################### İNSTANCE BÖLÜMÜ #####################################################
 # Kullanıcıdan alınan SQL Server instance adı
-$instanceName = $InstanceNam  # Örnek: 'MSSQLSERVER' veya 'MSSQLBILNEP'
-
 # MSSQL versiyonlarını dinamik olarak kontrol etme
+
 function Find-SqlServerInstance {
     param (
         [string] $InstanceName
     )
     $found = $false
     $registryPath = ""
+    $baseregistryPath = ""
 
     # MSSQL5'ten MSSQL20'ye kadar versiyonları kontrol et
     for ($version = 5; $version -le 20; $version++) {
         $instanceVersion = "MSSQL$version"
-        $testPath = "HKLM:\SOFTWARE\Microsoft\Microsoft SQL Server\$instanceVersion.$InstanceName"
+        $testPath = "HKLM:\SOFTWARE\Microsoft\Microsoft SQL Server\$instanceVersion.$InstanceName\MSSQLServer\SuperSocketNetLib\Tcp"
+        
+        # Base registry path'i de versiyon numarasına göre ayarla
+        $baseregistryPath = "HKLM:\SOFTWARE\Microsoft\Microsoft SQL Server\$instanceVersion.$InstanceName\MSSQLServer\SuperSocketNetLib"
 
         # Registry yolunu kontrol et
         if (Test-Path $testPath) {
@@ -346,12 +303,18 @@ function Find-SqlServerInstance {
     if (-not $found) {
         Write-Warning "Hiçbir SQL Server instance bulunamadı."
     }
-    return $registryPath
+
+    # Hashtable döndürülüyor
+    return @{RegistryPath=$registryPath; BaseRegistryPath=$baseregistryPath}
 }
 
 # Ana döngü: Instance bulunana kadar devam et
 do {
-    $registryPath = Find-SqlServerInstance -InstanceName $instanceName
+    $result = Find-SqlServerInstance -InstanceName $InstanceName
+
+    # Hashtabl’dan doğru değerleri al
+    $registryPath = $result.RegistryPath
+    $baseregistryPath = $result.BaseRegistryPath
 
     if (-not $registryPath) {
         Write-Host "SQL Server instance bulunamadı. Lütfen bir yol belirtin veya işlemi tekrar deneyin."
@@ -365,7 +328,7 @@ do {
                 Write-Host "Kullanıcı tarafından sağlanan registry yolu bulundu: $customPath"
                 $registryPath = $customPath
             } else {
-                Write-Host "Girilen registry yolu bulunamadı. Tekrar deneyin."
+                Write-Warning "Girilen registry yolu bulunamadı. Tekrar deneyin."
             }
         }
     }
@@ -375,13 +338,15 @@ do {
 
 # Bulunan registry yoluna göre işlemlere devam et
 Write-Host "Kullanılacak registry yolu: $registryPath"
-# Gerekli işlemler burada devam eder...
-##################################################### RANDOM PORT#####################################################
+Write-Host "Base registry yolu: $baseregistryPath"
+
+##################################################### RANDOM PORT #####################################################
 
 # SQL Server Configuration Manager'da TCP/IP Ayarlarını Yapılandırma
 try {
     Write-Host "Rastgele port oluşturuluyor..."
     
+    # Geçerli portu bulana kadar döngüye devam et
     do {
         $staticPort = Get-Random -Minimum 10000 -Maximum 63000
         $portInUse = (Get-NetTCPConnection -State Listen | Where-Object { $_.LocalPort -eq $staticPort }).Count -gt 0
@@ -393,6 +358,7 @@ try {
     if (Test-Path $registryPath) {
         Write-Host "SQL Server IP adres alanları yapılandırılıyor..."
         
+        # IP adresi girdilerini al
         $ipKeys = Get-ChildItem -Path $registryPath | Where-Object { $_.PSChildName -match "IP\d+" }
         
         if ($ipKeys.Count -eq 0) {
@@ -404,23 +370,28 @@ try {
             Write-Host "Ayarlanıyor: $($ipKey.PSChildName)"
 
             # Active ve Enabled ayarları
-            Set-ItemProperty -Path $ipKey.PSPath -Name "Active" -Value 1 -ErrorAction Continue
-            Write-Host "$($ipKey.PSChildName) 'Active' durumu etkinleştirildi."
+            try {
+                Set-ItemProperty -Path $ipKey.PSPath -Name "Active" -Value 1 -ErrorAction Stop
+                Write-Host "$($ipKey.PSChildName) 'Active' durumu etkinleştirildi."
 
-            Set-ItemProperty -Path $ipKey.PSPath -Name "Enabled" -Value 1 -ErrorAction Continue
-            Write-Host "$($ipKey.PSChildName) 'Enabled' durumu etkinleştirildi."
+                Set-ItemProperty -Path $ipKey.PSPath -Name "Enabled" -Value 1 -ErrorAction Stop
+                Write-Host "$($ipKey.PSChildName) 'Enabled' durumu etkinleştirildi."
 
-            # TcpDynamicPorts temizleme           
-            New-ItemProperty -Path $ipKey.PSPath -Name "TcpDynamicPorts" -Value "" -PropertyType String -Force -ErrorAction Continue
-            Write-Host "$($ipKey.PSChildName) 'TcpDynamicPorts' boş olarak ayarlandı."       
+                # TcpDynamicPorts temizleme
+                New-ItemProperty -Path $ipKey.PSPath -Name "TcpDynamicPorts" -Value "" -PropertyType String -Force -ErrorAction Stop
+                Write-Host "$($ipKey.PSChildName) 'TcpDynamicPorts' boş olarak ayarlandı."       
 
-            # TcpPort ayarları
-            Set-ItemProperty -Path $ipKey.PSPath -Name "TcpPort" -Value $staticPort -ErrorAction Continue
-            Write-Host "$($ipKey.PSChildName) 'TcpPort' ayarlandı: $staticPort"
+                # TcpPort ayarları
+                Set-ItemProperty -Path $ipKey.PSPath -Name "TcpPort" -Value $staticPort -ErrorAction Stop
+                Write-Host "$($ipKey.PSChildName) 'TcpPort' ayarlandı: $staticPort"
 
-            # IP Address ayarları
-            Set-ItemProperty -Path $ipKey.PSPath -Name "IPAddress" -Value $currentIP -ErrorAction Continue
-            Write-Host "$($ipKey.PSChildName) 'TcpIPAddress' ayarlandı: $currentIP"
+                # IP Address ayarları
+                Set-ItemProperty -Path $ipKey.PSPath -Name "IPAddress" -Value $currentIP -ErrorAction Stop
+                Write-Host "$($ipKey.PSChildName) 'TcpIPAddress' ayarlandı: $currentIP"
+            } catch {
+                Write-Error "Ağ yapılandırma ayarı yapılırken bir hata oluştu: $_"
+                exit 1
+            }
         }
 
         Write-Host "Tüm mevcut IPx girdileri başarıyla yapılandırıldı."
@@ -432,8 +403,7 @@ try {
     Write-Error "SQL Server ayarlarında bir hata oluştu: $_"
     exit 1
 }
-
-# IPAll Yapılandırması
+##################################################### IPAll Yapılandırması #####################################################
 try {
     $ipAllPath = Join-Path -Path $registryPath -ChildPath "IPAll"
     Write-Host "IPAll ayarları yapılandırılıyor..."
@@ -441,7 +411,7 @@ try {
     if (Test-Path $ipAllPath) {
         # TcpDynamicPorts boş olarak ayarlama
         try {
-            Set-ItemProperty -Path $ipAllPath -Name "TcpDynamicPorts" -Value "" -Type String -ErrorAction Continue
+            Set-ItemProperty -Path $ipAllPath -Name "TcpDynamicPorts" -Value "" -Type String -ErrorAction Stop
             Write-Host "'TcpDynamicPorts' boş olarak ayarlandı."
         } catch {
             Write-Warning "'TcpDynamicPorts' boş olarak ayarlanamadı: $_"
@@ -449,7 +419,7 @@ try {
 
         # TcpPort ayarı
         try {
-            Set-ItemProperty -Path $ipAllPath -Name "TcpPort" -Value $staticPort -Type String -ErrorAction Continue
+            Set-ItemProperty -Path $ipAllPath -Name "TcpPort" -Value $staticPort -Type String -ErrorAction Stop
             Write-Host "'TcpPort' ayarlandı: $staticPort"
         } catch {
             Write-Warning "'TcpPort' ayarlanamadı: $_"
@@ -462,7 +432,7 @@ try {
     exit 1
 }
 
-# SQL Server Servislerini Yeniden Başlatma
+##################################################### SQL Server Servislerini Yeniden Başlatma #####################################################
 try {
     Write-Host "SQL Server ile ilişkili tüm servisler yeniden başlatılıyor..."
     # MSSQL ile başlayan tüm servisleri al
@@ -477,7 +447,7 @@ try {
     foreach ($service in $sqlServices) {
         try {
             Write-Host "Servis durduruluyor: $($service.Name)"
-            Stop-Service -Name $service.Name -Force -ErrorAction Continue
+            Stop-Service -Name $service.Name -Force -ErrorAction Stop
         } catch {
             Write-Warning "Servis durdurulurken hata oluştu: $($service.Name) - $_"
         }
@@ -487,7 +457,7 @@ try {
     foreach ($service in $sqlServices) {
         try {
             Write-Host "Servis başlatılıyor: $($service.Name)"
-            Start-Service -Name $service.Name -ErrorAction Continue
+            Start-Service -Name $service.Name -ErrorAction Stop
         } catch {
             Write-Warning "Servis başlatılırken hata oluştu: $($service.Name) - $_"
         }
@@ -496,24 +466,11 @@ try {
     Write-Host "SQL Server servisleri başarıyla yeniden başlatıldı."
 } catch {
     Write-Error "SQL Server servisleri yeniden başlatılırken bir hata oluştu: $_"
-    exit 1
 }
 
-
-##################################################### 2. KISIM SONU İKİNCİ KISIM SQL SEÇİM KISMI #####################################################
+##################################################### 2. KISIM SONU - SQL SEÇİMİ #####################################################
 # Güvenlik Duvarı Ayarları: Port Ekleme
-do {
-    $response = Read-Host "Güvenlik duvarına port eklemek ister misiniz? (evet/hayır)"
-    switch ($response.ToLower()) {
-        "evet" { $isValid = $true; $addPort = $true }
-        "hayır" { $isValid = $true; $addPort = $false }
-        default { 
-            Write-Host "Lütfen sadece 'evet' veya 'hayır' yazın." -ForegroundColor Red
-            $isValid = $false 
-        }
-    }
-} while (-not $isValid)
-
+$addPort = $true
 if ($addPort) {
     try {
         Write-Host "Güvenlik duvarına port ekleniyor: $staticPort (TCP)..."
@@ -527,35 +484,39 @@ if ($addPort) {
         if ($existingRules) {
             Write-Host "Mevcut aynı isimli veya aynı portlu kurallar bulundu. Aktif hale getiriliyor..."
             foreach ($rule in $existingRules) {
-                Set-NetFirewallRule -Name $rule.Name -Enabled True -ErrorAction Continue
+                # Mevcut kuralı etkinleştir
+                Set-NetFirewallRule -Name $rule.Name -Enabled True -ErrorAction SilentlyContinue
+                Write-Host "Port kuralı etkinleştirildi: $($rule.Name)"
             }
         } else {
             # TCP için yeni kural ekleme
+            Write-Host "Yeni port kuralı oluşturuluyor..."
+
+            # Inbound kuralı ekleme
             New-NetFirewallRule -DisplayName "SQL Server Port $staticPort" `
                                 -Direction Inbound `
                                 -Action Allow `
                                 -Protocol TCP `
                                 -LocalPort $staticPort `
-                                -ErrorAction Continue
+                                -ErrorAction SilentlyContinue
 
+            # Outbound kuralı ekleme
             New-NetFirewallRule -DisplayName "SQL Server Port $staticPort" `
                                 -Direction Outbound `
                                 -Action Allow `
                                 -Protocol TCP `
                                 -LocalPort $staticPort `
-                                -ErrorAction Continue
+                                -ErrorAction SilentlyContinue
 
             Write-Host "Port güvenlik duvarına başarıyla eklendi."
         }
     } catch {
         Write-Error "Port güvenlik duvarına eklenirken bir hata oluştu: $_"
-        exit 1
     }
 } else {
     Write-Host "Güvenlik duvarına port ekleme atlandı."
 }
-
-##################################################### 3. KISIM SONU ÜÇÜNÇÜ KISIM PORT EKLEME KISMI #####################################################
+##################################################### 3. KISIM SONU - PORT EKLEME #####################################################
 
 # Ağ Paylaşım Ayarları
 try {
@@ -574,9 +535,9 @@ try {
     # Parola korumalı paylaşımı kapatma
     Write-Host "Parola korumalı paylaşım ayarları kontrol ediliyor..."
     $sharingSettingsPath = "HKLM:\SYSTEM\CurrentControlSet\Control\Lsa"
-    $currentValue = (Get-ItemProperty -Path $sharingSettingsPath -Name "LimitBlankPasswordUse" -ErrorAction Continue).LimitBlankPasswordUse
+    $currentValue = (Get-ItemProperty -Path $sharingSettingsPath -Name "LimitBlankPasswordUse" -ErrorAction SilentlyContinue).LimitBlankPasswordUse
     if ($currentValue -ne 0) {
-        Set-ItemProperty -Path $sharingSettingsPath -Name "LimitBlankPasswordUse" -Value 0 -Force
+        Set-ItemProperty -Path $sharingSettingsPath -Name "LimitBlankPasswordUse" -Value 0 -Force -ErrorAction Stop
         Write-Host "Parola korumalı paylaşım başarıyla devre dışı bırakıldı."
     } else {
         Write-Host "Parola korumalı paylaşım zaten devre dışı durumda."
@@ -584,47 +545,66 @@ try {
 
     Write-Host "Ağ paylaşım ayarları başarıyla yapılandırıldı."
 } catch {
-    Write-Error "Ağ paylaşım ayarları yapılandırılırken bir hata oluştu: $_"
-    exit 1
+    Write-Error "Ağ paylaşım ayarları yapılandırılırken bir hata oluştu: $_" -ErrorAction SilentlyContinue
 }
 
 Write-Host "Tüm ayarlar başarıyla tamamlandı."
-##################################################### SON KISIM PAYLAŞIM AYARLARINI AÇIYOR NOT SON KISMI ÇOK ÇALIŞTIRMAYIN FAZLA ÇALIŞTIRMADA GÜVENLİK DUVARINI ÇORBA YAPIYOR  #####################################################
+##################################################### SON KISIM - PAYLAŞIM AYARLARI #####################################################
 
-$baseregistryPath = "HKLM:\SOFTWARE\Microsoft\Microsoft SQL Server\$instanceVersion.$selectedInstance\MSSQLServer\SuperSocketNetLib"
-######$baseRegistryPath = "HKLM:\SOFTWARE\Microsoft\Microsoft SQL Server\$selectedInstance\MSSQLServer\SuperSocketNetLib"
+# Protokol ayarları
 $protocols = @(
     @{Name = "Shared Memory"; Path = "Sm"},
     @{Name = "Named Pipes"; Path = "Np"},
     @{Name = "TCP/IP"; Path = "Tcp"}
 )
 
+# Protokol ayarlarını etkinleştir
 foreach ($protocol in $protocols) {
     $protocolPath = Join-Path -Path $baseRegistryPath -ChildPath $protocol.Path
     if (Test-Path $protocolPath) {
-        Set-ItemProperty -Path $protocolPath -Name "Enabled" -Value 1 -ErrorAction SilentlyContinue
-        Write-Host "$($protocol.Name) protokolü etkinleştirildi."
+        try {
+            Set-ItemProperty -Path $protocolPath -Name "Enabled" -Value 1 -ErrorAction Stop
+            Write-Host "$($protocol.Name) protokolü etkinleştirildi."
+        } catch {
+            Write-Warning "$($protocol.Name) protokolü etkinleştirilemedi: $_"
+        }
     } else {
         Write-Warning "$($protocol.Name) protokolü için yol bulunamadı. İşlem atlanıyor."
     }
 }
 
+# Sonuç şifresini ve bağlantı bilgilerini kullanıcıya göster
+Write-Host "SqlID: sa  SIFRE=$SIFRE  PORT=$staticPort"
+
+# Bağlantı bilgilerini dosyaya kaydet
+try {
+    $outputText = "SqlID=SA SqlSifre=$SIFRE PORT=$staticPort BağlantıID=$SystemAdminAccounts/$InstanceNam"
+    $filePath = "C:\SQLBILNEXIDSIFRE.txt"
+    $outputText | Out-File -FilePath $filePath -Encoding UTF8 -Force
+    Write-Host "Bağlantı bilgileri başarıyla kaydedildi: $filePath"
+} catch {
+    Write-Error "Bağlantı bilgileri kaydedilirken bir hata oluştu: $_"
+}
+
+# İşlem sonu mesajı
+Write-Host "İşlemler tamamlandı."
+
+# Hata yönetimi (trap kullanımı)
 trap {
     Write-Error "Hata oluştu: $_"
     if ($_.Exception) {
         Write-Error "Ayrıntılı hata: $($_.Exception.Message)"
+        pause
+        break
     }
-    exit 1
 }
 
- Write-Host   SqlID:sa    SIFRE=$SIFRE
+##################################################### KULLANICIDAN YANIT ALMA #####################################################
 
-# Örnek işlemler
-Write-Host "İşlemler tamamlandı."
-
-# Kullanıcıdan yanıt alma
+# Kullanıcıdan kapanış onayı alma
 do {
     $response = Read-Host "İşlemler tamamlandı. Kapatılsın mı? (evet/hayır)"
+    
     if ($response -ieq "evet") {
         Write-Host "Pencere kapatılıyor..."
         exit
