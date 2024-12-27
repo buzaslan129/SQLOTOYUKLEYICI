@@ -583,6 +583,15 @@ try {
     Write-Error "Bağlantı bilgileri kaydedilirken bir hata oluştu: $_"
 }
 
+try {
+    Set-Service -Name "SQLBrowser" -StartupType Automatic -ErrorAction Stop
+    Start-Service -Name "SQLBrowser" -ErrorAction Stop
+    Write-Host "SQL Server Browser servisi başarıyla başlatıldı ve otomatik olarak ayarlandı." -ForegroundColor Green
+}
+catch {
+    Write-Host "Bir hata oluştu: $($_.Exception.Message)" -ForegroundColor Red
+}
+
 # İşlem sonu mesajı
 Write-Host "İşlemler tamamlandı."
 
@@ -595,7 +604,6 @@ trap {
         break
     }
 }
-
 ##################################################### KULLANICIDAN YANIT ALMA #####################################################
 
 # Kullanıcıdan kapanış onayı alma
