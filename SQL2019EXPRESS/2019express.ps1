@@ -188,6 +188,7 @@ try {
     }
 } catch {
     Write-Error "An error occurred while running the SQL Server setup: $_"
+	exit 1
 }
 
 "`nInstallation length: {0:f1} minutes" -f ((Get-Date) - $start).TotalMinutes
@@ -212,7 +213,8 @@ try {
 
     if ($adapters.Count -eq 0) {
         Write-Error "Aktif bir ağ bağdaştırıcısı bulunamadı."
-        exit 1
+	pause
+	break
     }
 
     foreach ($adapter in $adapters) {
@@ -288,7 +290,7 @@ function Find-SqlServerInstance {
         $instanceVersion = "MSSQL$version"
         $testPath = "HKLM:\SOFTWARE\Microsoft\Microsoft SQL Server\$instanceVersion.$InstanceName\MSSQLServer\SuperSocketNetLib\Tcp"
         
-        # Base registry path'i de versiyon numarasına göre ayarla
+        # Base registry path'i de versiyon numarasına göre ayarlama(dosya yolları için önceden kayıt bu kısım en son kısım için)
         $baseregistryPath = "HKLM:\SOFTWARE\Microsoft\Microsoft SQL Server\$instanceVersion.$InstanceName\MSSQLServer\SuperSocketNetLib"
 
         # Registry yolunu kontrol et
@@ -363,7 +365,6 @@ try {
         
         if ($ipKeys.Count -eq 0) {
             Write-Warning "Hiçbir IPx girdisi bulunamadı. Yapılandırma atlanıyor."
-            exit 1
         }
 
         foreach ($ipKey in $ipKeys) {
@@ -390,18 +391,15 @@ try {
                 Write-Host "$($ipKey.PSChildName) 'TcpIPAddress' ayarlandı: $currentIP"
             } catch {
                 Write-Error "Ağ yapılandırma ayarı yapılırken bir hata oluştu: $_"
-                exit 1
             }
         }
 
         Write-Host "Tüm mevcut IPx girdileri başarıyla yapılandırıldı."
     } else {
         Write-Error "Seçilen instance için TCP ayarlarına ulaşılamadı. Registry yolu bulunamadı."
-        exit 1
     }
 } catch {
     Write-Error "SQL Server ayarlarında bir hata oluştu: $_"
-    exit 1
 }
 ##################################################### IPAll Yapılandırması #####################################################
 try {
@@ -429,7 +427,6 @@ try {
     }
 } catch {
     Write-Error "IPAll yapılandırmasında bir hata oluştu: $_"
-    exit 1
 }
 
 ##################################################### SQL Server Servislerini Yeniden Başlatma #####################################################
