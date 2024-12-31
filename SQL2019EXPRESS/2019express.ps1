@@ -20,7 +20,7 @@ param(
     [string[]] $Features = @('SQL', 'SQLEngine', 'FullText','Tools','BC','Conn','LocalDB','SDK','SNAC_SDK'),
     [string] $InstallDir,
     [string] $DataDir,
-    [ValidateNotNullOrEmpty()] [string] $InstanceName = 'MSSQLBILNEE',
+    [ValidateNotNullOrEmpty()] [string] $InstanceName = 'MSSQLBILNEX',
     [string] $SaPassword ='$SIFRE',
     [string] $ServiceAccountName,
     [string] $ServiceAccountPassword,
@@ -204,6 +204,9 @@ if ($IsoPath) {
 } else {
     Write-Host "No ISO path found, skipping dismount."
 }
+
+############# Test çalıştırma kısmı gerekirse aktif edelim. 
+#$InstanceName = 'MSSQLBILNEX'
 
 ##################################################### İP ATAMASI  #####################################################
 try {
@@ -575,7 +578,7 @@ Write-Host "SqlID: sa  SIFRE=$SIFRE  PORT=$staticPort"
 
 # Bağlantı bilgilerini dosyaya kaydet
 try {
-    $outputText = "SqlID=SA SqlSifre=$SIFRE PORT=$staticPort BağlantıID=$SystemAdminAccounts/$InstanceNam"
+    $outputText = "SqlID=sa SqlSifre=$SIFRE PORT=$staticPort BağlantıID=$Env:USERDOMAIN/$InstanceName ip=$currentIP,$staticPort"
     $filePath = "C:\SQLBILNEXIDSIFRE.txt"
     $outputText | Out-File -FilePath $filePath -Encoding UTF8 -Force
     Write-Host "Bağlantı bilgileri başarıyla kaydedildi: $filePath"
