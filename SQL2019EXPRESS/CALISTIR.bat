@@ -12,5 +12,5 @@ if %errorlevel% neq 0 (
 cls
 echo YONETICI OLARAK BASLATILIYOR...
 
-powershell.exe -executionpolicy bypass C:\SQL2019EXPRESS\2019express.ps1 -EnableProtocols
+powershell.exe -executionpolicy bypass C:\SQL2019EXPRESS\2019Kodrawhali.ps1 -EnableProtocols
 pause
