@@ -34,6 +34,45 @@ if (-not ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdent
     Start-Process -FilePath "powershell.exe" -ArgumentList "-NoProfile -ExecutionPolicy Bypass -File `"$($MyInvocation.MyCommand.Path)`"" -Verb RunAs
     exit
 }
+#################################### Windows hata kontrolu aşaması#######################################################################
+Add-Type -AssemblyName System.Windows.Forms
+
+function Check-RestartRequired {
+    $registryPaths = @(
+        "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Component Based Servicing\RebootPending",
+        "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Auto Update\RebootRequired",
+        "HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\PendingFileRenameOperations"
+    )
+
+    foreach ($path in $registryPaths) {
+        if (Test-Path $path) {
+            return $true
+        }
+    }
+
+    return $false
+}
+
+if (Check-RestartRequired) {
+    $dialogResult = [System.Windows.Forms.MessageBox]::Show(
+        "Sistem yeniden başlatılması gerekiyor. Başlatılsın mı?",
+        "Yeniden Başlatma Gerekliliği",
+        [System.Windows.Forms.MessageBoxButtons]::YesNo,
+        [System.Windows.Forms.MessageBoxIcon]::Question
+    )
+
+    if ($dialogResult -eq [System.Windows.Forms.DialogResult]::Yes) {
+        Write-Host "Kullanıcı yeniden başlatmayı kabul etti. Sistem yeniden başlatılıyor..."
+        Restart-Computer -Force
+    } else {
+        Write-Host "Kullanıcı yeniden başlatmayı reddetti. Program Durduruluyor..."
+        pause
+        break
+    }
+} else {
+    Write-Host "Yeniden başlatma gerekliliği bulunamadı. Program Devam ediyor..."
+}
+###########################################################################################################
 
 function Get-RandomCharacters($length, $characters) {
     $random = 1..$length | ForEach-Object { 
@@ -57,34 +96,38 @@ $SIFRE += Get-RandomCharacters -length 6 -characters '!§$%/()=?}][{@#*+'
 
 # Şifreyi karıştırıyoruz
 $SIFRE = Scramble-String $SIFRE
-
-# ISO İNDİRME ATAMASI
-$FileId = "1ez0vA65Nfj5O-Ri_82wE83hwpXcqzeN5"
-$downloadUrl = "https://drive.usercontent.google.com/download?id=$FileId&export=download&authuser=0&confirm=t&uuid=$([guid]::NewGuid())"
-$saveDir = Join-Path $Env:TEMP "DownloadedFiles"
-New-Item $saveDir -ItemType Directory -ErrorAction SilentlyContinue | Out-Null
-$isoName = "DownloadedFile.iso"
-$savePath = Join-Path $saveDir $isoName
-
-# Dosya zaten mevcutsa kontrol et
-if (Test-Path $savePath) {
-    Write-Host "ISO dosyası zaten mevcut: $savePath"
-} else {
-    # TLS v1.2 protokolünü kullanmak için
-    [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
-
-    Write-Host "Diskte dosya bulunamadı. ISO dosyası indiriliyor..."
+###########################################################################################################
+function Test-FileInUse {
+    param (
+        [string]$filePath
+    )
     try {
-        $request = [System.Net.HttpWebRequest]::Create($downloadUrl)
+        $stream = [System.IO.File]::Open($filePath, 'Open', 'Read', 'None')
+        $stream.Close()
+        return $false
+    } catch {
+        return $true
+    }
+}
+
+function Download-File {
+    param (
+        [string]$url,
+        [string]$destination
+    )
+
+    Write-Host "ISO dosyası indiriliyor..."
+    try {
+        $request = [System.Net.HttpWebRequest]::Create($url)
         $response = $request.GetResponse()
         $contentLength = $response.ContentLength
 
         $stream = $response.GetResponseStream()
-        $fileStream = [System.IO.File]::Create($savePath)
+        $fileStream = [System.IO.File]::Create($destination)
         $buffer = New-Object byte[] 8192
         $totalBytesRead = 0
 
-        # Zamanlayıcı için başlangıç zamanı
+        # Zamanlama ve ilerleme güncellemesi
         $lastUpdateTime = Get-Date
         $lastReportedProgress = 0
 
@@ -94,8 +137,7 @@ if (Test-Path $savePath) {
             $progress = [math]::Round(($totalBytesRead / $contentLength) * 100, 2)
             $currentTime = Get-Date
 
-            # İlerleme güncellemesi
-            if (($progress -ge $lastReportedProgress + 1) -or (($currentTime - $lastUpdateTime).TotalSeconds -ge 10)) {
+            if (($progress -ge $lastReportedProgress + 5) -or (($currentTime - $lastUpdateTime).TotalSeconds -ge 10)) {
                 Write-Host "$progress% tamamlandı"
                 $lastReportedProgress = $progress
                 $lastUpdateTime = $currentTime
@@ -105,13 +147,75 @@ if (Test-Path $savePath) {
         $fileStream.Close()
         $stream.Close()
         $response.Close()
-        Write-Host "`nISO dosyası indirildi: $savePath"
-    }
-    catch {
+
+        Write-Host "`nISO dosyası başarıyla indirildi: $destination"
+    } catch {
         Write-Warning "ISO indirme işlemi başarısız oldu: $_"
-        Write-Host "Hata ayrıntıları: $($_.Exception.Message)"
+        if (Test-Path $destination) {
+            Write-Host "Dosya kullanımda değilse kaldırılıyor..."
+            if (-not (Test-FileInUse -filePath $destination)) {
+                Remove-Item $destination -Force -ErrorAction SilentlyContinue
+            } else {
+                Write-Warning "Dosya başka bir işlem tarafından kullanılıyor ve silinemiyor."
+            }
+        }
+        pause
+        break
     }
 }
+
+function Validate-FileSize {
+    param (
+        [string]$filePath,
+        [int]$expectedSizeMB
+    )
+
+    try {
+        $fileSizeMB = (Get-Item $filePath).Length / 1MB
+        if ($fileSizeMB -lt $expectedSizeMB) {
+            Write-Warning "Dosya boyutu beklentinin altında. ($fileSizeMB MB < $expectedSizeMB MB)"
+            return $false
+        }
+        Write-Host "Dosya boyutu doğrulandı: $fileSizeMB MB"
+        return $true
+    } catch {
+        Write-Warning "Dosya boyutu kontrolü sırasında hata oluştu: $_"
+        return $false
+    }
+}
+
+# Hedef klasör ve dosya
+$tempDir = Join-Path -Path $env:TEMP -ChildPath "ISO"
+$savePath = Join-Path -Path $tempDir -ChildPath "DownloadedFile.iso"
+$fileId = "1ez0vA65Nfj5O-Ri_82wE83hwpXcqzeN5"
+$downloadUrl = "https://drive.usercontent.google.com/download?id=$fileId&export=download&authuser=0&confirm=t&uuid=$([guid]::NewGuid())"
+$expectedFileSizeMB = 885  # Beklenen dosya boyutu MB cinsinden
+
+# Klasörü oluştur
+if (-not (Test-Path $tempDir)) {
+    New-Item -ItemType Directory -Path $tempDir | Out-Null
+    Write-Host "Kurulum klasörü oluşturuldu: $tempDir"
+}
+
+# İndirme işlemi
+if (Test-Path $savePath) {
+    Write-Host "ISO dosyası zaten mevcut: $savePath"
+    if (-not (Validate-FileSize -filePath $savePath -expectedSizeMB $expectedFileSizeMB)) {
+        Write-Host "Dosya geçersiz. Yeniden indiriliyor..."
+        if (-not (Test-FileInUse -filePath $savePath)) {
+            Remove-Item $savePath -Force -ErrorAction SilentlyContinue
+        } else {
+            Write-Warning "Dosya başka bir işlem tarafından kullanılıyor ve yeniden indirilemiyor."
+            pause
+            break
+        }
+        Download-File -url $downloadUrl -destination $savePath
+    }
+} else {
+    Download-File -url $downloadUrl -destination $savePath
+}
+
+Write-Host "ISO indirme işlemi tamamlandı."
 
 ######################################################
 $IsoPath = $savePath  # ISO dosyasının yolu
@@ -533,7 +637,7 @@ foreach ($protocol in $protocols) {
 }
 # Bağlantı bilgilerini dosyaya kaydet
 try {
-    $outputText = "SqlID=sa SqlSifre=$SIFRE PORT=$staticPort BağlantıID=$Env:USERDOMAIN/$InstanceName ip=$currentIP,$staticPort"
+    $outputText = "SqlID=sa SqlSifre=$SIFRE PORT=$staticPort BağlantıID=$Env:USERDOMAIN\$InstanceName ip=$currentIP,$staticPort"
     $filePath = "C:\SQLBILNEXIDSIFRE.txt"
     $outputText | Out-File -FilePath $filePath -Encoding UTF8 -Force
     Write-Host "Bağlantı bilgileri başarıyla kaydedildi: $filePath"
