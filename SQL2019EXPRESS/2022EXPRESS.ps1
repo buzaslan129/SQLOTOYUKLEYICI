@@ -16,10 +16,10 @@
 param(
     [string] $IsoPath = $ENV:SQLSERVER_ISOPATH,
     [ValidateSet('SQL', 'SQLEngine', 'Replication', 'FullText', 'DQ', 'PolyBase', 'AdvancedAnalytics', 'AS', 'RS', 'DQC', 'IS', 'MDS', 'SQL_SHARED_MR', 'Tools', 'BC', 'BOL', 'Conn', 'DREPLAY_CLT', 'SNAC_SDK', 'SDK', 'LocalDB')]
-    [string[]] $Features = @('SQL', 'SQLEngine', 'FullText','Tools','BC','Conn','LocalDB','SDK','SNAC_SDK'),
+   [string[]] $Features = @('SQL', 'SQLEngine', 'FullText', 'Tools', 'Conn', 'LocalDB'),
     [string] $InstallDir,
     [string] $DataDir,
-    [ValidateNotNullOrEmpty()] [string] $InstanceName = 'MSSQLBILNETT',
+    [ValidateNotNullOrEmpty()] [string] $InstanceName = 'MSSQLBILNEXP',
     [string] $SaPassword ='$SIFRE',
     [string] $ServiceAccountName,
     [string] $ServiceAccountPassword,
@@ -39,7 +39,6 @@ Add-Type -AssemblyName System.Windows.Forms
 
 function Check-RestartRequired {
     $registryPaths = @(
-        "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Component Based Servicing\RebootPending",
         "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Auto Update\RebootRequired",
         "HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\PendingFileRenameOperations"
     )
@@ -72,31 +71,19 @@ if (Check-RestartRequired) {
 } else {
     Write-Host "Yeniden başlatma gerekliliği bulunamadı. Program Devam ediyor..."
 }
-###########################################################################################################
-
+#################################################RANDOM SIFRE##########################################################
 function Get-RandomCharacters($length, $characters) {
-    $random = 1..$length | ForEach-Object { 
-        Get-Random -Maximum $characters.Length
-    }
-    $result = $random | ForEach-Object { $characters[$_] }
-    return -join $result
+    $charArray = $characters.ToCharArray()
+    -join (1..$length | ForEach-Object { $charArray[(Get-Random -Maximum $charArray.Length)] })
 }
-
-function Scramble-String([string]$inputString){
-    $characterArray = $inputString.ToCharArray()
-    $scrambledStringArray = $characterArray | Get-Random -Count $characterArray.Length
-    return -join $scrambledStringArray
+function Scramble-String($inputString) {
+    -join ($inputString.ToCharArray() | Get-Random -Count $inputString.Length)
 }
-
-# Şifreyi rastgele oluşturuyoruz
-$SIFRE = Get-RandomCharacters -length 11 -characters 'abcdefghiklmnoprstuvwxyz'
-$SIFRE += Get-RandomCharacters -length 7 -characters 'ABCDEFGHKLMNOPRSTUVWXYZ'
-$SIFRE += Get-RandomCharacters -length 6 -characters '1234567890'
-$SIFRE += Get-RandomCharacters -length 6 -characters '!§$%/()=?}][{@#*+'
-
-# Şifreyi karıştırıyoruz
-$SIFRE = Scramble-String $SIFRE
-###########################################################################################################
+$PasswordLength = Get-Random -Minimum 25 -Maximum 35
+$AllCharacters = 'abcdefghiklmnoprstuvwxyzABCDEFGHKLMNOPRSTUVWXYZ1234567890!§$%/()=?@#*+'
+$OrijinalSifre = Get-RandomCharacters -length $PasswordLength -characters $AllCharacters
+$SIFRE = Scramble-String $OrijinalSifre
+#############################################Dosya test aşaması ve kontrolu##############################################################
 function Test-FileInUse {
     param (
         [string]$filePath
@@ -186,10 +173,10 @@ function Validate-FileSize {
 
 # Hedef klasör ve dosya
 $tempDir = Join-Path -Path $env:TEMP -ChildPath "ISO"
-$savePath = Join-Path -Path $tempDir -ChildPath "DownloadedFile.iso"
-$fileId = "1ez0vA65Nfj5O-Ri_82wE83hwpXcqzeN5"
+$savePath = Join-Path -Path $tempDir -ChildPath "SQL2022EXPRESS.iso"
+$fileId = "1eRj2CmHUfb8qkO840ZutW5iC1i-zthjN"
 $downloadUrl = "https://drive.usercontent.google.com/download?id=$fileId&export=download&authuser=0&confirm=t&uuid=$([guid]::NewGuid())"
-$expectedFileSizeMB = 885  # Beklenen dosya boyutu MB cinsinden
+$expectedFileSizeMB = 500  # Beklenen dosya boyutu MB cinsinden
 
 # Klasörü oluştur
 if (-not (Test-Path $tempDir)) {
@@ -218,6 +205,7 @@ if (Test-Path $savePath) {
 Write-Host "ISO indirme işlemi tamamlandı."
 
 ######################################################
+
 $IsoPath = $savePath  # ISO dosyasının yolu
 Write-Host "Dosya diske bağlanıyor: $IsoPath"
 
@@ -252,11 +240,11 @@ Get-CimInstance win32_process | Where-Object { $_.CommandLine -like '*setup.exe*
 
 $cmd = @(
     "${iso_drive}setup.exe"
-    '/Q'                                # Silent install
+    '/Q'                          # Silent install
     '/INDICATEPROGRESS'                 # Specifies that the verbose Setup log file is piped to the console
     '/IACCEPTSQLSERVERLICENSETERMS'     # Must be included in unattended installations
     '/ACTION=install'                   # Required to indicate the installation workflow
-    '/UPDATEENABLED=False'              # Should it discover and include product updates.
+    '/UPDATEENABLED=True'              # Should it discover and include product updates.
     "/INSTANCEDIR=""$InstallDir"""
     "/INSTALLSQLDATADIR=""$DataDir"""
     "/FEATURES=" + ($Features -join ',')
@@ -267,6 +255,8 @@ $cmd = @(
     "/SQLSVCACCOUNT=""$ServiceAccountName"""
     "/SQLSVCPASSWORD=""$ServiceAccountPassword"""
     "/PID=$ProductKey"
+    "/SQLCOLLATION=Turkish_CI_AS"
+    '/SkipRules=RebootRequiredCheck'    # Restart gereklilik kontrolünü atlar
 )
 
 # remove empty arguments
@@ -635,7 +625,7 @@ foreach ($protocol in $protocols) {
         Write-Warning "$($protocol.Name) protokolü için yol bulunamadı. İşlem atlanıyor."
     }
 }
-# Bağlantı bilgilerini dosyaya kaydet
+##################################################### SQL SIFRE YAZDIRMA #####################################################
 try {
     $outputText = "SqlID=sa SqlSifre=$SIFRE PORT=$staticPort BağlantıID=$Env:USERDOMAIN\$InstanceName ip=$currentIP,$staticPort"
     $filePath = "C:\SQLBILNEXIDSIFRE.txt"
@@ -644,7 +634,6 @@ try {
 } catch {
     Write-Error "Bağlantı bilgileri kaydedilirken bir hata oluştu: $_"
 }
-
 try {
     Set-Service -Name "SQLBrowser" -StartupType Automatic -ErrorAction Stop
     Start-Service -Name "SQLBrowser" -ErrorAction Stop
@@ -652,6 +641,127 @@ try {
 }
 catch {
     Write-Host "Bir hata oluştu: $($_.Exception.Message)" -ForegroundColor Red
+}
+
+##################################################### SQL NATİVE CLİENT #####################################################
+$hedefYol = "$env:TEMP\sqlncli.msi"
+$dosyaId = "1yoR12EUnCqgbvlVtZ21JA9XzKF1JbizO"
+$indirmeUrl = "https://drive.usercontent.google.com/download?id=$dosyaId&export=download&authuser=0&confirm=t&uuid=$([guid]::NewGuid())"
+Download-File -url $indirmeUrl -destination $hedefYol
+
+$msiArgs = "/i `"$hedefYol`" IACCEPTSQLNCLILICENSETERMS=YES ADDLOCAL=ALL /quiet /norestart"
+$process = Start-Process -FilePath "msiexec.exe" -ArgumentList $msiArgs -Wait -PassThru -Verb RunAs
+
+if ($process.ExitCode -eq 0) {
+    Write-Host "Kurulum başarıyla tamamlandı."
+} else {
+    Write-Host "Kurulum başarısız oldu. Hata kodu: $($process.ExitCode)"
+}
+##################################################### SSMS INDIRME #####################################################
+function SSMSINDIR {
+    param (
+        [string]$url,
+        [string]$destination
+    )
+
+    Write-Host "SSMS indiriliyor..."
+    try {
+        $request = [System.Net.HttpWebRequest]::Create($url)
+        $response = $request.GetResponse()
+        $contentLength = $response.ContentLength
+
+        $stream = $response.GetResponseStream()
+        $fileStream = [System.IO.File]::Create($destination)
+        $buffer = New-Object byte[] 8192
+        $totalBytesRead = 0
+
+        # Zamanlama ve ilerleme güncellemesi
+        $lastUpdateTime = Get-Date
+        $lastReportedProgress = 0
+
+        while (($bytesRead = $stream.Read($buffer, 0, $buffer.Length)) -gt 0) {
+            $fileStream.Write($buffer, 0, $bytesRead)
+            $totalBytesRead += $bytesRead
+            $progress = [math]::Round(($totalBytesRead / $contentLength) * 100, 2)
+            $currentTime = Get-Date
+
+            if (($progress -ge $lastReportedProgress + 5) -or (($currentTime - $lastUpdateTime).TotalSeconds -ge 10)) {
+                Write-Host "$progress% tamamlandı"
+                $lastReportedProgress = $progress
+                $lastUpdateTime = $currentTime
+            }
+        }
+
+        $fileStream.Close()
+        $stream.Close()
+        $response.Close()
+
+        Write-Host "`nSSMS başarıyla indirildi: $destination"
+    } catch {
+        Write-Warning "SSMS indirme işlemi başarısız oldu: $_"
+    }
+}
+
+function Validate-FileSize {
+    param (
+        [string]$filePath,
+        [int]$expectedSizeMB
+    )
+
+    try {
+        $fileSizeMB = (Get-Item $filePath).Length / 1MB
+        if ($fileSizeMB -lt $expectedSizeMB) {
+            Write-Warning "Dosya boyutu beklentinin altında. ($fileSizeMB MB < $expectedSizeMB MB)"
+            return $false
+        }
+        Write-Host "Dosya boyutu doğrulandı: $fileSizeMB MB"
+        return $true
+    } catch {
+        Write-Warning "Dosya boyutu kontrolü sırasında hata oluştu: $_"
+        return $false
+    }
+}
+$tempDir = Join-Path -Path $env:C:\ -ChildPath "SSMS"
+$savePath = Join-Path -Path $tempDir -ChildPath "SSMS-Setup-ENU.exe"
+$ssmsDownloadUrl = "https://download.microsoft.com/download/9/b/e/9bee9f00-2ee2-429a-9462-c9bc1ce14c28/SSMS-Setup-ENU.exe"
+$expectedFileSizeMB = 473
+
+if (-not (Test-Path $tempDir)) {
+    New-Item -ItemType Directory -Path $tempDir | Out-Null
+    Write-Host "Kurulum klasörü oluşturuldu: $tempDir"
+}
+
+if (Test-Path $savePath) {
+    Write-Host "SSMS kurulum dosyası zaten mevcut: $savePath"
+    if (-not (Validate-FileSize -filePath $savePath -expectedSizeMB $expectedFileSizeMB)) {
+        Write-Host "Dosya geçersiz. Yeniden indiriliyor..."
+        Remove-Item $savePath -Force
+        SSMSINDIR -url $ssmsDownloadUrl -destination $savePath
+    }
+} else {
+    SSMSINDIR -url $ssmsDownloadUrl -destination $savePath
+}
+Write-Host "SSMS indirme işlemi tamamlandı."
+
+##################################################### HATA KONTROLU VE RESTART KONTROLU #####################################################
+
+if ($restartRequired -or (Check-RestartRequired)) {
+    Write-Warning "Sistem yeniden başlatılması gerekiyor."
+    $dialogResult = [System.Windows.Forms.MessageBox]::Show(
+        "Sistem yeniden başlatılması gerekiyor. Başlatılsın mı?",
+        "Yeniden Başlatma Gerekliliği",
+        [System.Windows.Forms.MessageBoxButtons]::YesNo,
+        [System.Windows.Forms.MessageBoxIcon]::Question 
+    )
+
+    if ($dialogResult -eq [System.Windows.Forms.DialogResult]::Yes) {
+        Write-Host "Kullanıcı yeniden başlatmayı kabul etti. Sistem yeniden başlatılıyor..."
+        Restart-Computer -Force
+    } else {
+        Write-Warning "Yeniden başlatma işlemi reddedildi. İşleme devam ediliyor..."
+    }
+} else {
+    Write-Host "Yeniden başlatma gerekliliği bulunamadı. İşleme devam ediliyor..."
 }
 
 # Hata yönetimi (trap kullanımı)
