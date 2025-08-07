@@ -21,11 +21,15 @@ Bu proje, Microsoft SQL Server'ı otomatik olarak kurmak için PowerShell betikl
 ### Kurulum Adımları
 
 1. **Yönetici olarak çalıştırın**: `CALISTIR.bat` dosyasını sağ tıklayıp "Yönetici olarak çalıştır" seçin
-2. **Script seçin**: İhtiyacınıza göre uygun PowerShell scriptini çalıştırın:
-   - `2022EXPRESS.ps1` - SQL Server 2022 Express
-   - `2022FULLPAKETSSMSYOK.ps1` - SQL Server 2022 Full (SSMS hariç)
-   - `2019KodrawEskihalisadecepowershell.ps1` - SQL Server 2019
-   - `2014EXPRESSMSLİ.ps1` - SQL Server 2014 Express
+2. **Sürüm seçin**: Açılan menüden istediğiniz SQL Server sürümünü seçin:
+   - **1** - SQL Server 2022 Express (Önerilen)
+   - **2** - SQL Server 2019
+   - **3** - SQL Server 2014 Express  
+   - **4** - SQL Server 2022 Full Paket (SSMS hariç)
+   - **5** - Çıkış
+3. **Kurulum başlar**: Seçiminizi yaptıktan sonra otomatik kurulum başlar
+
+**Not**: Artık manuel olarak PowerShell scriptlerini çalıştırmanıza gerek yoktur. `CALISTIR.bat` interaktif menü ile hangi sürümü kuracağınızı seçmenizi sağlar.
 
 ### Betik Özellikleri
 
