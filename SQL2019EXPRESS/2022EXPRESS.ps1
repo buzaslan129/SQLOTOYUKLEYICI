@@ -93,7 +93,7 @@ if (Check-RestartRequired) {
     } else {
         Write-Host "Kullanıcı yeniden başlatmayı reddetti. Program Durduruluyor..."
         pause
-        break
+        exit 1
     }
 } else {
     Write-Host "Yeniden başlatma gerekliliği bulunamadı. Program Devam ediyor..."
@@ -352,7 +352,7 @@ try {
 } catch {
     Write-Error "An error occurred while running the SQL Server setup: $_"
 	pause 
-    break
+    exit 1
 }
 
 # Dismount ISO only if $IsoPath is valid
@@ -377,7 +377,7 @@ try {
     if ($adapters.Count -eq 0) {
         Write-Error "Aktif bir ağ bağdaştırıcısı bulunamadı."
 	pause
-	break
+	exit 1
     }
 
     foreach ($adapter in $adapters) {
@@ -880,7 +880,7 @@ trap {
     if ($_.Exception) {
         Write-Error "Ayrıntılı hata: $($_.Exception.Message)"
         pause
-        break
+        exit 1
     }
 }
 ##################################################### KULLANICIDAN YANIT ALMA #####################################################
