@@ -1,18 +1,37 @@
-# Build and Release Folders
-bin-debug/
-bin-release/
-[Oo]bj/
-[Bb]in/
+# Windows
+[Dd]esktop.ini
+[Tt]humbs.db
+ehthumbs.db
+*.lnk
 
-# Other files and folders
-.settings/
+# Temporary files
+*.tmp
+*.temp
+*.log
+*.bak
+*.old
 
-# Executables
-*.swf
-*.air
-*.ipa
-*.apk
+# PowerShell
+*.ps1~
+*.psm1~
 
-# Project files, i.e. `.project`, `.actionScriptProperties` and `.flexProperties`
-# should NOT be excluded as they contain compiler settings and other important
-# information for Eclipse / Flash Builder.
+# Downloads and ISOs (large files)
+*.iso
+*.msi
+*.exe.download
+*.part
+
+# Generated password files (security)
+*SIFRE*.txt
+*PASSWORD*.txt
+SQLBILNEXIDSIFRE.txt
+
+# System folders
+$RECYCLE.BIN/
+System Volume Information/
+
+# IDE
+.vscode/
+.vs/
+*.suo
+*.user

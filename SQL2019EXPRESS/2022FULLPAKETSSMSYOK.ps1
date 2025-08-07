@@ -66,7 +66,7 @@ if (Check-RestartRequired) {
     } else {
         Write-Host "Kullanıcı yeniden başlatmayı reddetti. Program Durduruluyor..."
         pause
-        break
+        exit 1
     }
 } else {
     Write-Host "Yeniden başlatma gerekliliği bulunamadı. Program Devam ediyor..."
@@ -305,7 +305,7 @@ try {
     if ($adapters.Count -eq 0) {
         Write-Error "Aktif bir ağ bağdaştırıcısı bulunamadı."
 	pause
-	break
+	exit 1
     }
 
     foreach ($adapter in $adapters) {
@@ -722,7 +722,7 @@ function Validate-FileSize {
         return $false
     }
 }
-$tempDir = Join-Path -Path $env:C:\ -ChildPath "SSMS"
+$tempDir = Join-Path -Path $env:TEMP -ChildPath "SSMS"
 $savePath = Join-Path -Path $tempDir -ChildPath "SSMS-Setup-ENU.exe"
 $ssmsDownloadUrl = "https://download.microsoft.com/download/9/b/e/9bee9f00-2ee2-429a-9462-c9bc1ce14c28/SSMS-Setup-ENU.exe"
 $expectedFileSizeMB = 473
