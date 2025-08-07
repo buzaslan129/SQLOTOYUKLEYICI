@@ -29,6 +29,33 @@ param(
     [switch] $EnableProtocols
 )
 
+#################################### YAPLANDIRMA AYARLARI ####################################
+# Bu bölümde indirme URL'leri ve dosya ayarları bulunur
+# Gerektiğinde bu değerleri güncelleyebilirsiniz
+
+$CONFIG = @{
+    SQLServer = @{
+        FileId = "1eRj2CmHUfb8qkO840ZutW5iC1i-zthjN"  # Google Drive dosya ID'si
+        ExpectedSizeMB = 500                            # Beklenen dosya boyutu
+        FileName = "SQL2022EXPRESS.iso"                 # İndirilen dosya adı
+    }
+    SQLNativeClient = @{
+        FileId = "1yoR12EUnCqgbvlVtZ21JA9XzKF1JbizO"  # Google Drive dosya ID'si
+        FileName = "sqlncli.msi"                        # İndirilen dosya adı
+    }
+    SSMS = @{
+        DirectUrl = "https://download.microsoft.com/download/9/b/e/9bee9f00-2ee2-429a-9462-c9bc1ce14c28/SSMS-Setup-ENU.exe"
+        ExpectedSizeMB = 473                            # Beklenen dosya boyutu
+        FileName = "SSMS-Setup-ENU.exe"                 # İndirilen dosya adı
+    }
+    Credentials = @{
+        OutputFile = "C:\SQLBILNEXIDSIFRE.txt"         # Şifre ve bağlantı bilgileri dosyası
+    }
+}
+
+Write-Host "Yapılandırma ayarları yüklendi." -ForegroundColor Cyan
+############################################################################################
+
 if (-not ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole] "Administrator")) {
     Write-Host "Bu betik yönetici yetkileriyle çalıştırılmalıdır. Yeniden başlatılıyor..."
     Start-Process -FilePath "powershell.exe" -ArgumentList "-NoProfile -ExecutionPolicy Bypass -File `"$($MyInvocation.MyCommand.Path)`"" -Verb RunAs
@@ -100,14 +127,29 @@ function Test-FileInUse {
 function Download-File {
     param (
         [string]$url,
-        [string]$destination
+        [string]$destination,
+        [string]$description = "Dosya"
     )
 
-    Write-Host "ISO dosyası indiriliyor..."
+    Write-Host "$description indiriliyor..."
+    Write-Host "URL: $url"
+    
     try {
+        # URL geçerliliği kontrolü
+        if (-not ($url -match "^https?://")) {
+            throw "Geçersiz URL formatı: $url"
+        }
+        
         $request = [System.Net.HttpWebRequest]::Create($url)
+        $request.Timeout = 30000  # 30 saniye timeout
+        $request.UserAgent = "PowerShell-SQLInstaller/1.0"
+        
         $response = $request.GetResponse()
         $contentLength = $response.ContentLength
+        
+        if ($contentLength -le 0) {
+            Write-Warning "Dosya boyutu bilgisi alınamadı, indirme devam ediyor..."
+        }
 
         $stream = $response.GetResponseStream()
         $fileStream = [System.IO.File]::Create($destination)
@@ -121,11 +163,21 @@ function Download-File {
         while (($bytesRead = $stream.Read($buffer, 0, $buffer.Length)) -gt 0) {
             $fileStream.Write($buffer, 0, $bytesRead)
             $totalBytesRead += $bytesRead
-            $progress = [math]::Round(($totalBytesRead / $contentLength) * 100, 2)
+            
+            if ($contentLength -gt 0) {
+                $progress = [math]::Round(($totalBytesRead / $contentLength) * 100, 2)
+            } else {
+                $progress = 0
+            }
+            
             $currentTime = Get-Date
 
             if (($progress -ge $lastReportedProgress + 5) -or (($currentTime - $lastUpdateTime).TotalSeconds -ge 10)) {
-                Write-Host "$progress% tamamlandı"
+                if ($contentLength -gt 0) {
+                    Write-Host "$progress% tamamlandı ($('{0:N2}' -f ($totalBytesRead / 1MB)) MB)"
+                } else {
+                    Write-Host "$('{0:N2}' -f ($totalBytesRead / 1MB)) MB indirildi..."
+                }
                 $lastReportedProgress = $progress
                 $lastUpdateTime = $currentTime
             }
@@ -135,9 +187,12 @@ function Download-File {
         $stream.Close()
         $response.Close()
 
-        Write-Host "`nISO dosyası başarıyla indirildi: $destination"
+        Write-Host "`n$description başarıyla indirildi: $destination" -ForegroundColor Green
+        return $true
     } catch {
-        Write-Warning "ISO indirme işlemi başarısız oldu: $_"
+        Write-Warning "$description indirme işlemi başarısız oldu: $_"
+        Write-Warning "İnternet bağlantınızı kontrol edin veya URL'nin geçerliliğini doğrulayın."
+        
         if (Test-Path $destination) {
             Write-Host "Dosya kullanımda değilse kaldırılıyor..."
             if (-not (Test-FileInUse -filePath $destination)) {
@@ -146,8 +201,7 @@ function Download-File {
                 Write-Warning "Dosya başka bir işlem tarafından kullanılıyor ve silinemiyor."
             }
         }
-        pause
-        break
+        return $false
     }
 }
 
@@ -173,10 +227,10 @@ function Validate-FileSize {
 
 # Hedef klasör ve dosya
 $tempDir = Join-Path -Path $env:TEMP -ChildPath "ISO"
-$savePath = Join-Path -Path $tempDir -ChildPath "SQL2022EXPRESS.iso"
-$fileId = "1eRj2CmHUfb8qkO840ZutW5iC1i-zthjN"
+$savePath = Join-Path -Path $tempDir -ChildPath $CONFIG.SQLServer.FileName
+$fileId = $CONFIG.SQLServer.FileId
 $downloadUrl = "https://drive.usercontent.google.com/download?id=$fileId&export=download&authuser=0&confirm=t&uuid=$([guid]::NewGuid())"
-$expectedFileSizeMB = 500  # Beklenen dosya boyutu MB cinsinden
+$expectedFileSizeMB = $CONFIG.SQLServer.ExpectedSizeMB
 
 # Klasörü oluştur
 if (-not (Test-Path $tempDir)) {
@@ -185,6 +239,7 @@ if (-not (Test-Path $tempDir)) {
 }
 
 # İndirme işlemi
+$downloadSuccess = $false
 if (Test-Path $savePath) {
     Write-Host "ISO dosyası zaten mevcut: $savePath"
     if (-not (Validate-FileSize -filePath $savePath -expectedSizeMB $expectedFileSizeMB)) {
@@ -194,15 +249,31 @@ if (Test-Path $savePath) {
         } else {
             Write-Warning "Dosya başka bir işlem tarafından kullanılıyor ve yeniden indirilemiyor."
             pause
-            break
+            exit 1
         }
-        Download-File -url $downloadUrl -destination $savePath
+        $downloadSuccess = Download-File -url $downloadUrl -destination $savePath -description "SQL Server 2022 Express ISO"
+    } else {
+        $downloadSuccess = $true
     }
 } else {
-    Download-File -url $downloadUrl -destination $savePath
+    $downloadSuccess = Download-File -url $downloadUrl -destination $savePath -description "SQL Server 2022 Express ISO"
 }
 
-Write-Host "ISO indirme işlemi tamamlandı."
+if (-not $downloadSuccess) {
+    Write-Error "ISO dosyası indirilemedi. İnternet bağlantınızı kontrol edin."
+    Write-Host "Alternatif olarak ISO dosyasını manuel olarak indirip şu konuma yerleştirin: $savePath"
+    pause
+    exit 1
+}
+
+# İndirilen dosyayı doğrula
+if (-not (Validate-FileSize -filePath $savePath -expectedSizeMB $expectedFileSizeMB)) {
+    Write-Error "İndirilen dosya beklenen boyutta değil. İndirme işlemi başarısız olabilir."
+    pause
+    exit 1
+}
+
+Write-Host "ISO indirme işlemi başarıyla tamamlandı." -ForegroundColor Green
 
 ######################################################
 
@@ -628,9 +699,32 @@ foreach ($protocol in $protocols) {
 ##################################################### SQL SIFRE YAZDIRMA #####################################################
 try {
     $outputText = "SqlID=sa SqlSifre=$SIFRE PORT=$staticPort BağlantıID=$Env:USERDOMAIN\$InstanceName ip=$currentIP,$staticPort"
-    $filePath = "C:\SQLBILNEXIDSIFRE.txt"
+    $filePath = $CONFIG.Credentials.OutputFile
+    
+    # Güvenlik uyarısı
+    Write-Warning "ÖNEMLİ GÜVENLİK UYARISI: SQL bağlantı bilgileri ve şifre düz metin olarak kaydedilecek!"
+    Write-Warning "Dosya yolu: $filePath"
+    Write-Warning "Kurulum sonrası bu dosyayı güvenli bir yere taşıyın veya silin!"
+    
     $outputText | Out-File -FilePath $filePath -Encoding UTF8 -Force
-    Write-Host "Bağlantı bilgileri başarıyla kaydedildi: $filePath"
+    
+    # Dosya izinlerini sınırla (sadece yönetici ve mevcut kullanıcı erişebilir)
+    try {
+        $acl = Get-Acl $filePath
+        $acl.SetAccessRuleProtection($true, $false) # Kalıtımı kaldır
+        $acl.Access | ForEach-Object { $acl.RemoveAccessRule($_) } # Tüm izinleri kaldır
+        
+        # Sadece sistem ve mevcut kullanıcıya tam yetki ver
+        $acl.SetAccessRule((New-Object System.Security.AccessControl.FileSystemAccessRule($env:USERNAME, "FullControl", "Allow")))
+        $acl.SetAccessRule((New-Object System.Security.AccessControl.FileSystemAccessRule("SYSTEM", "FullControl", "Allow")))
+        
+        Set-Acl -Path $filePath -AclObject $acl
+        Write-Host "Dosya güvenlik izinleri sınırlandırıldı." -ForegroundColor Yellow
+    } catch {
+        Write-Warning "Dosya güvenlik izinleri ayarlanamadı: $_"
+    }
+    
+    Write-Host "Bağlantı bilgileri başarıyla kaydedildi: $filePath" -ForegroundColor Green
 } catch {
     Write-Error "Bağlantı bilgileri kaydedilirken bir hata oluştu: $_"
 }
@@ -644,18 +738,34 @@ catch {
 }
 
 ##################################################### SQL NATİVE CLİENT #####################################################
-$hedefYol = "$env:TEMP\sqlncli.msi"
-$dosyaId = "1yoR12EUnCqgbvlVtZ21JA9XzKF1JbizO"
+$hedefYol = Join-Path -Path $env:TEMP -ChildPath $CONFIG.SQLNativeClient.FileName
+$dosyaId = $CONFIG.SQLNativeClient.FileId
 $indirmeUrl = "https://drive.usercontent.google.com/download?id=$dosyaId&export=download&authuser=0&confirm=t&uuid=$([guid]::NewGuid())"
-Download-File -url $indirmeUrl -destination $hedefYol
 
-$msiArgs = "/i `"$hedefYol`" IACCEPTSQLNCLILICENSETERMS=YES ADDLOCAL=ALL /quiet /norestart"
-$process = Start-Process -FilePath "msiexec.exe" -ArgumentList $msiArgs -Wait -PassThru -Verb RunAs
+Write-Host "SQL Native Client indiriliyor..." -ForegroundColor Yellow
+$nativeClientDownload = Download-File -url $indirmeUrl -destination $hedefYol -description "SQL Native Client"
 
-if ($process.ExitCode -eq 0) {
-    Write-Host "Kurulum başarıyla tamamlandı."
+if ($nativeClientDownload) {
+    Write-Host "SQL Native Client kuruluyor..." -ForegroundColor Yellow
+    $msiArgs = "/i `"$hedefYol`" IACCEPTSQLNCLILICENSETERMS=YES ADDLOCAL=ALL /quiet /norestart"
+    $process = Start-Process -FilePath "msiexec.exe" -ArgumentList $msiArgs -Wait -PassThru -Verb RunAs
+
+    if ($process.ExitCode -eq 0) {
+        Write-Host "SQL Native Client kurulumu başarıyla tamamlandı." -ForegroundColor Green
+    } else {
+        Write-Warning "SQL Native Client kurulumu başarısız oldu. Hata kodu: $($process.ExitCode)"
+        Write-Host "Bu durum SQL Server'ın çalışmasını etkilemeyebilir."
+    }
+    
+    # Kurulum dosyasını temizle
+    try {
+        Remove-Item $hedefYol -Force -ErrorAction SilentlyContinue
+        Write-Host "Geçici kurulum dosyası temizlendi."
+    } catch {
+        Write-Warning "Geçici dosya temizlenemedi: $hedefYol"
+    }
 } else {
-    Write-Host "Kurulum başarısız oldu. Hata kodu: $($process.ExitCode)"
+    Write-Warning "SQL Native Client indirilemedi. Manuel olarak kurabilirsiniz."
 }
 ##################################################### SSMS INDIRME #####################################################
 function SSMSINDIR {
@@ -721,10 +831,10 @@ function Validate-FileSize {
         return $false
     }
 }
-$tempDir = Join-Path -Path $env:C:\ -ChildPath "SSMS"
-$savePath = Join-Path -Path $tempDir -ChildPath "SSMS-Setup-ENU.exe"
-$ssmsDownloadUrl = "https://download.microsoft.com/download/9/b/e/9bee9f00-2ee2-429a-9462-c9bc1ce14c28/SSMS-Setup-ENU.exe"
-$expectedFileSizeMB = 473
+$tempDir = Join-Path -Path $env:TEMP -ChildPath "SSMS"
+$savePath = Join-Path -Path $tempDir -ChildPath $CONFIG.SSMS.FileName
+$ssmsDownloadUrl = $CONFIG.SSMS.DirectUrl
+$expectedFileSizeMB = $CONFIG.SSMS.ExpectedSizeMB
 
 if (-not (Test-Path $tempDir)) {
     New-Item -ItemType Directory -Path $tempDir | Out-Null
